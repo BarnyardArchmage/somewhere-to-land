@@ -879,6 +879,164 @@ const SWAYS=new Set(["tuft","flower","fern","reed","mushroomSmall"]);
 const NODE_SWAY=new Set(["lavenderSprig","moonbellPatch","reedBed","inkcapRing","nightcapCluster","ghostcapCluster"]);
 /* ===== TIME ===== */
 const HOUR_MS = 45000;                 // 1 in-game hour = 45 real seconds
+
+/* ===== TOWNS ===== */
+/* ground legend: . lane  , grass  T tree  ~ water  = planks  w well  # wall */
+const TOWNS = {
+  town:{
+    name:"Wick Harbour", w:21, h:15,
+    ground:[
+      "~~~~~~~~~~~~~~~~~~~~~",
+      "~~~~~~~~~~~~~~~~~~~~~",
+      "~~~~=~~~~~~~=~~~~~~~~",
+      "~~~~=~~~~~~~=~~~~~~~~",
+      ".....................",
+      ".....................",
+      ",...,...,...,...,...,",
+      ".....................",
+      ".........w...........",
+      ",...,...,...,...,...,",
+      ".....................",
+      ".....................",
+      ",..T,...,...T...,..T,",
+      ".....................",
+      "....................."],
+    buildings:[
+      {id:"harbour", kind:"office",  name:"Harbourmaster's",     x:1, y:5, w:3, h:2, door:[2,7]},
+      {id:"bakery",  kind:"bakery",  name:"The bakery",          x:6, y:5, w:3, h:2, door:[7,7]},
+      {id:"store",   kind:"store",   name:"Sloe's general store",x:11,y:5, w:4, h:2, door:[12,7], enter:"store"},
+      {id:"clerk",   kind:"office",  name:"The clerk's office",  x:17,y:5, w:3, h:2, door:[18,7]},
+      {id:"shop",    kind:"shop",    name:"Your shop",           x:3, y:9, w:4, h:3, door:[4,12], enter:"shop"},
+      {id:"weaver",  kind:"cottage", name:"Ceri's cottage",      x:9, y:9, w:3, h:2, door:[10,11]},
+      {id:"sella",   kind:"cottage", name:"Sella's cottage",     x:14,y:9, w:3, h:2, door:[15,11]},
+      {id:"bunk",    kind:"cottage", name:"The quay bunk room",  x:18,y:9, w:2, h:2, door:[18,11]},
+    ],
+    boats:[[4,2],[12,3]],
+    entry:[10,13],
+  },
+  village:{
+    name:"Thornbury", w:19, h:13,
+    ground:[
+      ",,,TT,,,,,,,,,TT,,,",
+      ",,,,,,,,,,,,,,,,,,,",
+      ",,,,,,,,,,,,,,,,,,,",
+      ",,,,,,,,,,,,,,,,,,,",
+      "...................",
+      ",,,,,,,,,,,,,,,,,,,",
+      "...................",
+      ",,,,,,,,w,,,,,,,,,,",
+      ",,,,,,,,,,,,,,,,,,,",
+      "...................",
+      ",,,,,,,,,,,,,,,,,,,",
+      ",,,,,,,,,,,,,,,,,,,",
+      ",,T,,,,,,,,,,,,,T,,"],
+    buildings:[
+      {id:"chapel",  kind:"chapel",  name:"The chapel",        x:8, y:1, w:3, h:3, door:[9,4], enter:"chapel"},
+      {id:"shop",    kind:"shop",    name:"Your shop",         x:2, y:2, w:4, h:3, door:[3,5],  enter:"shop"},
+      {id:"carpent", kind:"workshop",name:"Stoke's carpentry", x:14,y:2, w:3, h:2, door:[15,4], enter:"furniture"},
+      {id:"marta",   kind:"cottage", name:"Marta's cottage",   x:2, y:8, w:4, h:2, door:[3,10]},
+      {id:"fair",    kind:"cottage", name:"The Fairweathers'", x:8, y:8, w:3, h:2, door:[9,10]},
+      {id:"tobin",   kind:"cabin",   name:"Tobin's cabin",     x:15,y:8, w:3, h:2, door:[16,10]},
+      {id:"farm",    kind:"farm",    name:"Hale farm",         x:11,y:11,w:5, h:2, door:[12,10]},
+    ],
+    boats:[],
+    entry:[9,12],
+  },
+};
+
+/* who is where, and when */
+const TOWNSFOLK = {
+  town:[
+    {name:"Ardith Vell",     role:"Harbourmaster", work:[2,8],  home:[2,8],  hours:[7,19],
+     line:"Tide's in at four. Write it down or don't, but don't come asking me twice."},
+    {name:"Bram the Baker",  role:"Baker",         work:[7,8],  home:[7,8],  hours:[4,14],
+     line:"Flour up to my elbows since four this morning."},
+    {name:"Maren Sloe",      role:"General store", work:[12,8], home:[12,8], hours:[8,18],
+     line:"If I haven't got it, I can likely get it. Give me a week."},
+    {name:"Hollis the Clerk",role:"Clerk",         work:[18,8], home:[18,8], hours:[9,17],
+     line:"I've made a list. I always make a list."},
+    {name:"Ceri the Weaver", role:"Weaver",        work:[10,12],home:[10,12],hours:[8,18],
+     line:"My eyes aren't what they were at the loom."},
+    {name:"Sella Dock-hand", role:"Dock-hand",     work:[9,4],  home:[15,12],hours:[6,16],
+     line:"Boat's in, back's out. You know how it goes."},
+    {name:"Joss Kerrin",     role:"Odd jobs",      work:[13,4], home:[18,12],hours:[7,18],
+     line:"You came from somewhere, then. What's it like, somewhere?"},
+  ],
+  village:[
+    {name:"Ansel Roke",      role:"Keeps the chapel", work:[9,5], home:[9,5], hours:[6,19],
+     line:"Spirits and prayers are neighbours. I've never seen them quarrel."},
+    {name:"Deri Stoke",      role:"Carpenter",     work:[15,6], home:[15,6], hours:[7,18],
+     line:"You want that shelf level or you want it quick. Not both."},
+    {name:"Old Marta",       role:"Grandmother",   work:[4,11], home:[4,11], hours:[8,19],
+     line:"My knees know the weather before the sky does."},
+    {name:"Pim",             role:"Nine",          work:[6,11], home:[4,11], hours:[9,18],
+     line:"I'm nine. I have my own money. It's for my sister."},
+    {name:"Wren",            role:"Six",           work:[5,10], home:[4,11], hours:[10,17],
+     line:"..."},
+    {name:"Nan Fairweather", role:"",              work:[9,11], home:[9,11], hours:[8,18],
+     line:"Don't tell my husband I came to see a witch."},
+    {name:"Gareth Fairweather",role:"",            work:[11,10],home:[9,11], hours:[7,18],
+     line:"No offence meant. I just don't see what we'd need one for."},
+    {name:"Tobin",           role:"Lumberman",     work:[16,11],home:[16,11],hours:[6,17],
+     line:"Just curious, mostly. And maybe a little worried."},
+    {name:"Morwen Hale",     role:"Farmer",        work:[12,9], home:[12,9], hours:[5,19],
+     line:"Frost coming. Three days, maybe four."},
+  ],
+};
+
+/* buildings are drawn to their footprint in pixels */
+function Building({b,T,season}){
+  const W=b.w*T, H=b.h*T;
+  const roofH=Math.min(H*0.52, T*1.15);
+  const wall = {shop:"#e6d6b4",store:"#dfd0b0",bakery:"#e8dcc0",office:"#d6cdb8",
+    cottage:"#e2d4b8",cabin:"#b99a74",chapel:"#dcd6c8",workshop:"#d8c4a0",farm:"#d8cdae"}[b.kind]||"#e0d2b6";
+  const roof = {shop:"#7a4f78",store:"#8a5a3c",bakery:"#a8613a",office:"#6f6a5a",
+    cottage:"#9a5a44",cabin:"#6e4d33",chapel:"#8a8296",workshop:"#7d6446",farm:"#8a7448"}[b.kind]||"#8a5a44";
+  const [dx,dy]=b.door;
+  const doorX=(dx-b.x)*T+T/2, onBottom=dy>=b.y+b.h;
+  return (
+    <g>
+      <rect x="0" y={roofH} width={W} height={H-roofH} fill={wall}/>
+      <path d={`M-4,${roofH} L${W/2},2 L${W+4},${roofH} Z`} fill={roof}/>
+      {b.kind==="chapel"&&<>
+        <rect x={W/2-1.6} y={-14} width="3.2" height="14" fill="#c8b48a"/>
+        <rect x={W/2-6} y={-10} width="12" height="3" fill="#c8b48a"/></>}
+      {b.kind==="bakery"&&<rect x={W-12} y={roofH-22} width="6" height="22" fill="#8a7258"/>}
+      {b.kind==="shop"&&<>
+        <rect x={W*0.12} y={roofH+9} width={W*0.34} height={H-roofH-22} fill="#2f4a52"/>
+        <rect x={W*0.54} y={roofH+9} width={W*0.34} height={H-roofH-22} fill="#2f4a52"/>
+        <rect x={W/2-16} y={roofH-9} width="32" height="7" rx="2" fill="#4a3a6b"/></>}
+      {b.kind!=="shop"&&b.kind!=="farm"&&
+        <rect x={W*0.62} y={roofH+8} width={Math.min(14,W*0.22)} height={Math.min(12,H*0.2)} fill="#3d5560"/>}
+      {b.kind==="farm"&&<>
+        <rect x="6" y={roofH+6} width={W-12} height={H-roofH-14} fill="#b8a878" opacity="0.5"/>
+        <path d={`M10,${H-6} L${W-10},${H-6}`} stroke="#8a7448" strokeWidth="2"/></>}
+      {/* the door */}
+      {onBottom
+        ? <rect x={doorX-7} y={H-16} width="14" height="16" rx="2" fill="#5a4430"/>
+        : <rect x={doorX-7} y={H-16} width="14" height="16" rx="2" fill="#5a4430"/>}
+      <circle cx={doorX+4} cy={H-8} r="1.3" fill="#c9a86a"/>
+    </g>);
+}
+const NPC_SPRITE=(hue)=>(
+  <g>
+    <ellipse cx="0" cy="10" rx="6.5" ry="2" fill="#0d0a14" opacity="0.3"/>
+    <path d="M-5,-1 q5,-2 10,0 L7,9 q-5,2 -10,0 Z" transform="translate(-2.5,0)" fill={hue}/>
+    <circle cx="0" cy="-7" r="3.2" fill="#f0d8ba"/>
+    <path d="M-3.3,-8 q0.5,-4 3.3,-4 q3,0 3.2,4 q-1.2,-2 -3.3,-2 q-2,0 -3.2,2 Z" fill="#4a3b30"/>
+  </g>);
+const NPC_HUES=["#5a6e8a","#7a5a4a","#5f7a5a","#7a5f7a","#8a6a4a","#4f6a72","#6a5a8a","#7d6a52","#5a7a6e"];
+
+function npcAt(n,hour){
+  if(isNight(hour)) return null;                 // indoors after dark
+  const [a,b]=n.hours;
+  if(hour>=a&&hour<b) return n.work;
+  /* an hour either side of their day they're near home; otherwise inside */
+  if(hour>=a-1&&hour<a) return n.home;
+  if(hour>=b&&hour<b+1.5) return n.home;
+  return null;
+}
+
 /* ===== SOUND =====
    All generated live — no audio files. Four seasonal beds built from the same parts. */
 const MUSIC = [
@@ -1182,7 +1340,7 @@ function windowOf(ing,day,h){
   if(w==="night") return h>=DUSK ? `n${day}` : `n${day-1}`;
   return `a${day}`;
 }
-const MAXSTAM=8, SAVE_KEY="witchgame:v8";
+const MAXSTAM=8, SAVE_KEY="witchgame:v9";
 
 export default function WitchGame(){
   const grid=useMemo(buildGrid,[]);
@@ -1219,6 +1377,7 @@ export default function WitchGame(){
   const [siteMem,setSiteMem]=useState({});
   const [wear,setWear]=useState({});
   const [site,setSite]=useState(null);
+  const [tw,setTw]=useState(null);      // {pos, fam, walking, note, pending}
   const [scraps,setScraps]=useState({});      // id -> {sol, knownSlot, attempts:[], solved:bool}
   const [openScrap,setOpenScrap]=useState(null);
   const [foundFirst,setFoundFirst]=useState(false);
@@ -1275,7 +1434,7 @@ export default function WitchGame(){
       return()=>window.removeEventListener("pointerdown",go);
     }
   },[soundOn,season,nightNow,weather]);
-  const clockRuns = appActive && (screen==="site"||screen==="town");
+  const clockRuns = appActive && (screen==="site"||screen==="town"||screen==="townmap");
   /* one bird crosses now and then, rather than a permanent loop */
   useEffect(()=>{
     if(screen!=="site"||!appActive) return;
@@ -1329,14 +1488,14 @@ export default function WitchGame(){
         setPos(s.pos);setSeen(new Set(s.seen));setDay(s.day);setHour(s.hour??7);setStamina(s.stamina);setCoin(s.coin);setRep(s.rep);
         setBag(s.bag);setGoods(s.goods||{});setHomeTown(s.homeTown);setCustomers(s.customers||[]);setCustDay(s.custDay||0);setServed(s.served||[]);setLog(s.log||[]);
         setUnsettled(s.unsettled||0);setSiteMem(s.siteMem||{});setWear(s.wear||{});setScraps(s.scraps||{});setBench(s.bench||null);setFoundFirst(!!s.foundFirst);setFront(s.front||null);setSoundOn(!!s.soundOn);setBonds(s.bonds||{});setUsedEnc(s.usedEnc||[]);setLastEncDay(s.lastEncDay??-99);
-        setScreen((s.screen==="site"||s.screen==="encounter")?"map":s.screen);}
+        setScreen((s.screen==="site"||s.screen==="encounter"||s.screen==="townmap")?"map":s.screen);}
     }catch(e){}
     setLoaded(true);
   })();},[]);
 
   useEffect(()=>{
     if(!loaded||screen==="create")return;
-    const s={prof,skills,pos,seen:[...seen],day,hour,stamina,coin,rep,bag,goods,homeTown,customers,custDay,served,log,unsettled,siteMem,wear,scraps,bench,foundFirst,front,soundOn,bonds,usedEnc,lastEncDay,screen:(screen==="site"||screen==="encounter")?"map":screen};
+    const s={prof,skills,pos,seen:[...seen],day,hour,stamina,coin,rep,bag,goods,homeTown,customers,custDay,served,log,unsettled,siteMem,wear,scraps,bench,foundFirst,front,soundOn,bonds,usedEnc,lastEncDay,screen:(screen==="site"||screen==="encounter"||screen==="townmap")?"map":screen};
     window.storage.set(SAVE_KEY,JSON.stringify(s)).catch(()=>{});
   },[loaded,prof,skills,pos,seen,day,hour,stamina,coin,rep,bag,goods,homeTown,customers,custDay,served,log,unsettled,siteMem,wear,scraps,bench,foundFirst,front,soundOn,bonds,usedEnc,lastEncDay,screen]);
 
@@ -1420,6 +1579,55 @@ export default function WitchGame(){
     const pool=ENCOUNTERS.filter(e=>!usedEnc.includes(e.id)&&(!e.terrain||e.terrain.includes(terrain)));
     if(!pool.length)return null;
     return pool[Math.floor(Math.random()*pool.length)];
+  }
+  const townDef = homeTown ? TOWNS[homeTown.key] : null;
+  function townSolid(t,x,y){
+    if(x<0||y<0||x>=t.w||y>=t.h) return true;
+    const ch=t.ground[y][x];
+    if(ch==="~"||ch==="T"||ch==="#"||ch==="w") return true;
+    return t.buildings.some(b=>x>=b.x&&x<b.x+b.w&&y>=b.y&&y<b.y+b.h);
+  }
+  function townPath(t,from,to){
+    const prev={},seen=new Set([from]),q=[from];
+    while(q.length){
+      const cur=q.shift(); if(cur===to) break;
+      const [x,y]=cur.split(",").map(Number);
+      for(const [nx,ny] of [[x+1,y],[x-1,y],[x,y+1],[x,y-1]]){
+        const id=`${nx},${ny}`;
+        if(seen.has(id)||townSolid(t,nx,ny)) continue;
+        seen.add(id); prev[id]=cur; q.push(id);
+      }
+    }
+    if(!seen.has(to)) return null;
+    const path=[]; let c=to;
+    while(c!==from){ path.unshift(c); c=prev[c]; }
+    return path;
+  }
+  function enterTown(){
+    if(!homeTown) return;
+    const t=TOWNS[homeTown.key];
+    const e=`${t.entry[0]},${t.entry[1]}`;
+    setTw({pos:e,fam:e,walking:null,note:null,pending:null});
+    setScreen("townmap");
+  }
+  function tapTown(x,y){
+    const t=townDef; if(!t||!tw||tw.walking) return;
+    const id=`${x},${y}`;
+    if(id===tw.pos) return;
+    let dest=id, action=null;
+    if(townSolid(t,x,y)){
+      const b=t.buildings.find(b=>x>=b.x&&x<b.x+b.w&&y>=b.y&&y<b.y+b.h);
+      if(!b) return;
+      dest=`${b.door[0]},${b.door[1]}`; action={kind:"building",id:b.id};
+      if(townSolid(t,b.door[0],b.door[1])) return;
+    } else {
+      const folk=(TOWNSFOLK[homeTown.key]||[]).find(n=>{
+        const p=npcAt(n,hour); return p&&p[0]===x&&p[1]===y; });
+      if(folk) action={kind:"npc",name:folk.name};
+    }
+    const path=townPath(t,tw.pos,dest);
+    if(!path) return;
+    setTw(w=>({...w,walking:{steps:path,i:0},pending:action,note:null}));
   }
   function enterSite(){
     const tile=byId[pos],mem=siteMem[siteKey];
@@ -1520,6 +1728,44 @@ export default function WitchGame(){
     return()=>clearTimeout(stepTimer.current);
   },[site,siteKey,prof]);
 
+  useEffect(()=>{
+    if(!tw?.walking||!townDef) return;
+    if(tw.walking.i>=tw.walking.steps.length){
+      const act=tw.pending;
+      setTw(w=>w&&({...w,walking:null,pending:null}));
+      if(act) resolveTown(act);
+      return;
+    }
+    const id=setTimeout(()=>{
+      setTw(w=>{
+        if(!w?.walking) return w;
+        const step=w.walking.steps[w.walking.i];
+        if(w.walking.i%2===0) sfx("step");
+        const [x,y]=step.split(",").map(Number);
+        const opts=[[x-1,y],[x+1,y],[x,y+1],[x,y-1]]
+          .filter(([a,b])=>!townSolid(townDef,a,b)).map(([a,b])=>`${a},${b}`);
+        const fam=opts.length?opts[0]:w.fam;
+        return {...w,pos:step,fam,walking:{...w.walking,i:w.walking.i+1}};
+      });
+    },150);
+    return()=>clearTimeout(id);
+  },[tw,townDef]);
+
+  function resolveTown(act){
+    if(act.kind==="npc"){
+      const n=(TOWNSFOLK[homeTown.key]||[]).find(x=>x.name===act.name);
+      if(n){ sfx("tap"); setTw(w=>w&&({...w,note:`${n.name}${n.role?" · "+n.role:""}\n"${n.line}"`})); }
+      return;
+    }
+    const b=townDef.buildings.find(x=>x.id===act.id);
+    if(!b) return;
+    if(b.enter==="shop"){ sfx("page"); setScreen("town"); return; }
+    if(b.enter==="store"){ setTw(w=>w&&({...w,note:"Sloe's general store. Maren keeps the counter tidy and the shelves full. Nothing to buy yet — the trading comes later."})); return; }
+    if(b.enter==="furniture"){ setTw(w=>w&&({...w,note:"Stoke's carpentry. Sawdust, half-built shelves, and Deri arguing with a chair. Nothing to buy yet."})); return; }
+    if(b.enter==="chapel"){ setTw(w=>w&&({...w,note:"The chapel. Cold stone, swept clean, and no one much in it. Ansel keeps it anyway."})); return; }
+    setTw(w=>w&&({...w,note:`${b.name}. The door is shut.`}));
+  }
+
   function doHarvest(id){
     if(!site)return;
     const cells=site.cells.map(c=>({...c,node:c.node?{...c.node}:null}));
@@ -1605,7 +1851,9 @@ export default function WitchGame(){
     say(sc.found);
   }
   function settle(placeKey){
-    setHomeTown({key:placeKey,tile:pos});setSettlePrompt(null);setScreen("town");
+    setHomeTown({key:placeKey,tile:pos});setSettlePrompt(null);
+    const t=TOWNS[placeKey];const e=`${t.entry[0]},${t.entry[1]}`;
+    setTw({pos:e,fam:e,walking:null,note:null,pending:null});setScreen("townmap");
     say(`You take the empty shopfront at ${PLACES[placeKey].label}. It smells of dust and old rope.`);
   }
   function customerCount(){
@@ -1852,6 +2100,90 @@ export default function WitchGame(){
     </div>);
   }
 
+  /* ---- TOWN MAP ---- */
+  if(screen==="townmap"&&tw&&townDef){
+    const t=townDef;
+    const TW=t.w*T, TH=t.h*T;
+    const [px,py]=tw.pos.split(",").map(Number);
+    const [fx,fy]=tw.fam.split(",").map(Number);
+    const vw=viewSize.w, vh=viewSize.h;
+    const camX=Math.min(Math.max(0,TW-vw),Math.max(0,px*T+T/2-vw/2));
+    const camY=Math.min(Math.max(0,TH-vh),Math.max(0,py*T+T/2-vh/2));
+    const folk=(TOWNSFOLK[homeTown.key]||[])
+      .map((n,i)=>({...n,hue:NPC_HUES[i%NPC_HUES.length],at:npcAt(n,hour)}))
+      .filter(n=>n.at);
+    const g1=season===3?"#8e9aa0":season===2?"#8a8a46":"#7d9454";
+    const g2=season===3?"#97a2a8":season===2?"#948f4e":"#869c5a";
+    return(<div style={wrap}>
+      <StatusBar/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8,padding:"0 2px"}}>
+        <div style={{fontSize:16,color:C.text}}>{t.name}</div>
+        <div style={{fontSize:11.5,color:C.faint,fontStyle:"italic"}}>
+          {isNight(hour)?"Everyone's indoors":`${folk.length} about`}
+        </div>
+      </div>
+      <div style={{border:`1px solid ${C.line}`,borderRadius:10,overflow:"hidden",marginBottom:10}}>
+        <div ref={siteBox} style={{position:"relative",width:"100%",height:vh,overflow:"hidden",background:g1}}>
+          <div style={{position:"absolute",width:TW,height:TH,
+            transform:`translate(${-camX}px, ${-camY}px)`,transition:"transform 0.18s linear"}}>
+            <svg width={TW} height={TH} viewBox={`0 0 ${TW} ${TH}`} style={{display:"block"}}>
+              {t.ground.map((row,y)=>row.split("").map((ch,x)=>{
+                const water=ch==="~"||ch==="=";
+                const lane=ch===".";
+                const alt=((x*73856093)^(y*19349663))%3===0;
+                return <rect key={`g${x},${y}`} x={x*T} y={y*T} width={T} height={T}
+                  fill={ch==="="?"#7a5f42":water?"#31505c":lane?(alt?"#9a8f7a":"#a39880"):(alt?g2:g1)}/>;
+              }))}
+              {t.ground.map((row,y)=>row.split("").map((ch,x)=>{
+                const cx=x*T+T/2, cy=y*T+T/2;
+                if(ch==="T") return <g key={`t${x},${y}`} transform={`translate(${cx},${cy})`}>{SEASONAL.tree(season)}</g>;
+                if(ch==="w") return (<g key={`w${x},${y}`} transform={`translate(${cx},${cy})`}>{S.oldWell}</g>);
+                return null;
+              }))}
+              {t.boats&&t.boats.map(([bx,by],i)=>(
+                <g key={`b${i}`} transform={`translate(${bx*T+T/2},${by*T+T/2})`}>
+                  <path d="M-15,4 q15,9 30,0 L26,-3 L-11,-3 Z" fill="#6b503a"/>
+                  <path d="M-11,-3 L26,-3 L24,-6 L-9,-6 Z" fill="#8a6a4a"/>
+                  <path d="M6,-6 L6,-24" stroke="#8a6a4a" strokeWidth="2"/>
+                  <path d="M6,-22 q12,6 0,12 Z" fill="#d8cdb4"/>
+                </g>))}
+              {t.buildings.map(b=>(
+                <g key={b.id} transform={`translate(${b.x*T},${b.y*T})`}
+                   onClick={()=>tapTown(b.x,b.y)} style={{cursor:"pointer"}}>
+                  <Building b={b} T={T} season={season}/>
+                </g>))}
+              {folk.map(n=>(
+                <g key={n.name} transform={`translate(${n.at[0]*T+T/2},${n.at[1]*T+T/2})`}
+                   onClick={()=>tapTown(n.at[0],n.at[1])} style={{cursor:"pointer"}}>
+                  {NPC_SPRITE(n.hue)}
+                </g>))}
+              {t.ground.map((row,y)=>row.split("").map((ch,x)=>(
+                <rect key={`tap${x},${y}`} x={x*T} y={y*T} width={T} height={T} fill="transparent"
+                  onClick={()=>tapTown(x,y)} style={{cursor:"pointer"}}/>)))}
+              <rect x="0" y="0" width={TW} height={TH} fill={L.rgb} opacity={L.alpha}
+                style={{pointerEvents:"none"}}/>
+              {isNight(hour)&&t.buildings.map(b=>(
+                <g key={`lit${b.id}`} style={{pointerEvents:"none"}}>
+                  <circle cx={b.x*T+b.w*T/2} cy={b.y*T+b.h*T*0.7} r={b.w*T*0.5} fill="#ffd98a" opacity="0.10"/>
+                </g>))}
+              <g transform={`translate(${fx*T+T/2},${fy*T+T/2+6})`} style={{transition:"transform 0.15s linear"}}>{FAMILIAR}</g>
+              <g transform={`translate(${px*T+T/2},${py*T+T/2+2}) scale(0.86)`}>{WITCH}</g>
+            </svg>
+          </div>
+          <WeatherLayer kind={weather}/>
+        </div>
+      </div>
+      <Panel style={{marginBottom:10,minHeight:76}}>
+        <div style={{fontSize:13.5,color:tw.note?C.text:C.faint,lineHeight:1.65,
+          fontStyle:tw.note?"normal":"italic",whiteSpace:"pre-line"}}>
+          {tw.note||"Tap to walk. Tap a door to go in, or a neighbour to say something."}
+        </div>
+      </Panel>
+      <Btn tone="gold" onClick={()=>{setTw(null);setScreen("map");}}>Out to the map</Btn>
+      <Journal/>
+    </div>);
+  }
+
   /* ---- SITE ---- */
   if(screen==="site"&&site){
     const terr=TERRAIN[site.terrain];
@@ -2047,7 +2379,7 @@ export default function WitchGame(){
               ? <div style={{fontSize:12.5,color:"#8fb4cf",fontStyle:"italic",lineHeight:1.6,marginBottom:4}}>You're over open water. Pick a shore to make for.</div>
               : <Btn onClick={enterSite}>Set down and look around</Btn>}
             {homeTown&&(<><div style={{height:8}}/>
-              <Btn tone="gold" disabled={pos!==homeTown.tile} onClick={()=>setScreen("town")}>
+              <Btn tone="gold" disabled={pos!==homeTown.tile} onClick={enterTown}>
                 {pos===homeTown.tile?`Enter ${PLACES[homeTown.key].label}`:"Fly home to enter town"}</Btn></>)}
           </>)}
           {!busy&&sel&&(<>
@@ -2062,7 +2394,7 @@ export default function WitchGame(){
                 : <>
                     <Btn onClick={enterSite}>Set down and look around</Btn>
                     {homeTown&&pos===homeTown.tile&&(<><div style={{height:8}}/>
-                      <Btn tone="gold" onClick={()=>setScreen("town")}>Enter {PLACES[homeTown.key].label}</Btn></>)}
+                      <Btn tone="gold" onClick={enterTown}>Enter {PLACES[homeTown.key].label}</Btn></>)}
                   </>)
               :!route?<div style={{fontSize:12,color:"#6b5d80",fontStyle:"italic"}}>No known route — explore closer first.</div>
               :sel.terrain==="water"?<div style={{fontSize:12.5,color:"#8fb4cf",fontStyle:"italic",lineHeight:1.6}}>Open water — nowhere to set down. You can cross it, but not stop on it.</div>
@@ -2339,7 +2671,11 @@ export default function WitchGame(){
       {bench?(now>=bench.readyAt?`The ${SCRAPS[bench.scrapId]?.name||"work"} is ready · look`:"Into the back room · still working"):"Into the back room"}
     </Btn>
     <div style={{height:8}}/>
-    <Btn onClick={()=>{setSelected(null);setScreen("map");}}>Fly out to gather</Btn>
+    <Btn onClick={()=>{ if(!tw){const t=TOWNS[homeTown.key];const e=`${t.entry[0]},${t.entry[1]}`;
+        setTw({pos:e,fam:e,walking:null,note:null,pending:null});}
+      setScreen("townmap"); }}>Out to the street</Btn>
+    <div style={{height:8}}/>
+    <Btn onClick={()=>{setSelected(null);setTw(null);setScreen("map");}}>Fly out to gather</Btn>
     <div style={{height:8}}/>
     <Btn tone="gold" onClick={()=>sleep(8)}>Close up · end day</Btn>
     <Journal/>
