@@ -408,7 +408,9 @@ function permanentFor(hexId, terrain){
   return { ...lm, withResource };
 }
 
-function genSite(hexId, day, terrain, place, wear) {
+let HOUR_FOR_FOLK=12;
+function genSite(hexId, day, terrain, place, wear, atHour) {
+  HOUR_FOR_FOLK = atHour===undefined?12:atHour;
   const season = seasonOf(day);
   const def = SITE_DEF[terrain] || SITE_DEF.meadow;
   const baseArt = TERRART[terrain] || TERRART.meadow;
@@ -518,7 +520,18 @@ function genSite(hexId, day, terrain, place, wear) {
            || cells[3*SW+Math.floor(SW/2)];
     if (c) { c.blocked=true; c.node=null; c.curio=null; c.greed=null; c.deco=null; c.perm=null; c.landmark=place; }
   }
-  return { cells, def, art, entry, perm, worn, season };
+  /* someone may be working this ground */
+  let worker=null;
+  const w=wandererFor(hexId, day, HOUR_FOR_FOLK, terrain);
+  if(w){
+    const open=cells.filter(c=>!c.blocked&&!c.water&&!c.node&&!c.curio&&!c.greed
+      && c.y>=1 && c.y<=SH-3);
+    if(open.length){
+      const spot=open[Math.floor(rng()*open.length)];
+      worker={...w, at:spot.id};
+    }
+  }
+  return { cells, def, art, entry, perm, worn, season, worker };
 }
 
 function hashStr(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
@@ -1037,6 +1050,303 @@ function npcAt(n,hour){
   return null;
 }
 
+
+/* ===== PEOPLE OUT IN THE WORLD ===== */
+/* home is the hex they live near; they don't stray far from it */
+const WANDERERS = [
+  { name:"Tobin", role:"Lumberman", town:"village", terrain:["forest"], hours:[6,17], range:3,
+    act:"chop", hue:"#7d6a52",
+    lines:["Third one today. The wood's wet and it doesn't want to split.",
+           "There's a stand further in I've been saving. Don't tell Deri.",
+           "Quiet out here. Suits me most days."] },
+  { name:"Morwen Hale", role:"Farmer", town:"village", terrain:["meadow","orchard"], hours:[5,19], range:3,
+    act:"tend", hue:"#5f7a5a",
+    lines:["Frost coming. Three days, maybe four.",
+           "Ground's late this year. It'll catch up or it won't.",
+           "You'd be the witch, then."] },
+  { name:"Sella Dock-hand", role:"Dock-hand", town:"town", terrain:["marsh","meadow"], hours:[6,16], range:3,
+    act:"haul", hue:"#4f6a72",
+    lines:["Creels want checking whether I want to check them or not.",
+           "Tide's wrong for it. Came out anyway.",
+           "Mind the soft ground over that way."] },
+  { name:"Pim", role:"Nine", town:"village", terrain:["forest","meadow"], hours:[10,17], range:2,
+    act:"crouch", hue:"#8a6a4a",
+    lines:["I'm allowed. Marta knows I'm out.",
+           "Don't tell Wren I was over this far.",
+           "Do witches have to go to school?"] },
+  { name:"Joss Kerrin", role:"Odd jobs", town:"town", terrain:["meadow","hills","forest","orchard"], hours:[7,18], range:5,
+    act:"stand", hue:"#7a5f7a", weight:0.6,
+    lines:["Paid work, this. Sort of. Ardith asked.",
+           "You came from somewhere, then. What's it like, somewhere?",
+           "One day I'll just go. That's the plan, anyway."] },
+  { name:"The peddler", role:"Trader", town:null, terrain:["meadow","hills","orchard","forest"], hours:[8,18], range:99,
+    act:"stand", hue:"#8a6a4a", weight:0.25,
+    lines:["Everything on the cloth is for sale. Most of it twice.",
+           "Roads are roads. Some are worse.",
+           "I'd show you the tin but you've that look of no money about you."] },
+];
+const TOWN_HEX = { town:"6,4", village:"1,4" };
+function hexDist(a,b){
+  /* offset rows to cube coords, then the usual hex distance */
+  const [ax,ay]=a.split(",").map(Number), [bx,by]=b.split(",").map(Number);
+  const toCube=(c,r)=>{ const x=c-(r-(r&1))/2, z=r; return [x,-x-z,z]; };
+  const [x1,y1,z1]=toCube(ax,ay), [x2,y2,z2]=toCube(bx,by);
+  return Math.max(Math.abs(x1-x2),Math.abs(y1-y2),Math.abs(z1-z2));
+}
+/* who, if anyone, is working this hex today */
+function wandererFor(hexId, day, hour, terrain){
+  const rng=mulberry32(hashStr(`folk|${hexId}|${day}`));
+  if(rng()>=0.17) return null;                    // about one site in six
+  const able=WANDERERS.filter(w=>{
+    if(!w.terrain.includes(terrain)) return false;
+    if(hour<w.hours[0]||hour>=w.hours[1]) return false;
+    if(w.town && hexDist(hexId, TOWN_HEX[w.town])>w.range) return false;
+    return true;
+  });
+  if(!able.length) return null;
+  /* the roamers turn up less than the locals do */
+  const total=able.reduce((a,w)=>a+(w.weight??1),0);
+  let r=rng()*total;
+  for(const w of able){ r-=(w.weight??1); if(r<=0) return w; }
+  return able[able.length-1];
+}
+
+/* ===== INTERIORS ===== */
+/* floor legend: . boards  , stone  # wall  = threshold */
+const INTERIORS = {
+  shop:{ name:"The shop", w:11, h:8, floor:"boards",
+    plan:["###########",
+          "#.........#",
+          "#.........#",
+          "#.........#",
+          "#.........#",
+          "#.........#",
+          "#.........#",
+          "#####=#####"],
+    objects:[
+      {id:"counter", kind:"counter", x:2,y:2,w:4,h:1, label:"The counter",  act:"counter", stand:[3,3]},
+      {id:"shelves", kind:"shelf",   x:8,y:1,w:2,h:1, label:"Your shelves", act:"make",    stand:[8,2]},
+      {id:"satchel", kind:"crate",   x:8,y:4,w:1,h:1, label:"Your satchel", act:"satchel", stand:[8,5]},
+      {id:"backdoor",kind:"door",    x:1,y:1,w:1,h:1, label:"The back room",act:"go:workshop", stand:[1,2]},
+      {id:"stairs",  kind:"stairs",  x:9,y:6,w:1,h:1, label:"Up to your room", act:"go:room", stand:[8,6]},
+    ],
+    exit:{x:5,y:7,to:"townmap",label:"Out to the street"},
+    entry:[5,6] },
+
+  workshop:{ name:"The back room", w:9, h:7, floor:"boards",
+    plan:["#########",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "####=####"],
+    objects:[
+      {id:"bench",  kind:"bench", x:2,y:1,w:3,h:1, label:"The workbench", act:"bench", stand:[3,2]},
+      {id:"rack",   kind:"rack",  x:6,y:1,w:2,h:1, label:"A drying rack", act:"look:Bunches hung to dry. Nothing of yours on it yet.", stand:[6,2]},
+      {id:"crates", kind:"crate", x:1,y:4,w:1,h:1, label:"Crates",        act:"look:Empty crates, stacked. They'll hold something one day.", stand:[1,3]},
+    ],
+    exit:{x:4,y:6,to:"shop",label:"Back to the shop"},
+    entry:[4,5] },
+
+  room:{ name:"Upstairs", w:9, h:7, floor:"boards",
+    plan:["#########",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "####=####"],
+    objects:[
+      {id:"bed",   kind:"bed",   x:1,y:1,w:2,h:2, label:"Your bed",   act:"bed",   stand:[3,2]},
+      {id:"stove", kind:"stove", x:6,y:1,w:2,h:1, label:"The little stove", act:"look:A stove, a kettle, and one chair. It is enough.", stand:[6,2]},
+      {id:"chest", kind:"chest", x:7,y:4,w:1,h:1, label:"A chest",    act:"look:Empty but for a folded coat. Storage comes later.", stand:[6,4]},
+      {id:"window",kind:"window",x:4,y:0,w:1,h:1, label:"The window", act:"look:It looks out over the lane. You can see a good deal of the town from up here.", stand:[4,1]},
+    ],
+    exit:{x:4,y:6,to:"shop",label:"Down to the shop"},
+    entry:[4,5] },
+
+  store:{ name:"Sloe's general store", w:11, h:7, floor:"stone",
+    plan:["###########",
+          "#.........#",
+          "#.........#",
+          "#.........#",
+          "#.........#",
+          "#.........#",
+          "#####=#####"],
+    objects:[
+      {id:"counter",kind:"counter",x:3,y:2,w:4,h:1, label:"The counter", act:"look:Maren keeps the counter clear and the ledger closed. Buying comes later.", stand:[4,3]},
+      {id:"shelfA", kind:"shelf",  x:1,y:1,w:2,h:1, label:"Shelves",     act:"look:Rope, lamp oil, jars, twine, and a great deal of things you'd only want once.", stand:[1,2]},
+      {id:"shelfB", kind:"shelf",  x:8,y:1,w:2,h:1, label:"Shelves",     act:"look:Sacks of flour and meal, stacked to the ceiling.", stand:[8,2]},
+      {id:"barrel", kind:"crate",  x:9,y:4,w:1,h:1, label:"A barrel",    act:"look:Salt fish. The smell reaches the door.", stand:[8,4]},
+    ],
+    npc:{name:"Maren Sloe", at:[4,1], hue:"#7a5a4a",
+      line:"If I haven't got it, I can likely get it. Give me a week."},
+    exit:{x:5,y:6,to:"townmap",label:"Out to the street"},
+    entry:[5,5] },
+
+  furniture:{ name:"Stoke's carpentry", w:9, h:7, floor:"boards",
+    plan:["#########",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "####=####"],
+    objects:[
+      {id:"bench", kind:"bench", x:1,y:1,w:3,h:1, label:"Deri's bench", act:"look:Chisels laid out in order of size. Someone minds about that.", stand:[2,2]},
+      {id:"timber",kind:"timber",x:6,y:1,w:2,h:1, label:"Stacked timber", act:"look:Boards seasoning against the wall. Tobin's work, most likely.", stand:[6,2]},
+      {id:"chair", kind:"chair", x:7,y:4,w:1,h:1, label:"A half-built chair", act:"look:Three legs and an argument.", stand:[6,4]},
+    ],
+    npc:{name:"Deri Stoke", at:[3,3], hue:"#7d6a52",
+      line:"You want that shelf level or you want it quick. Not both."},
+    exit:{x:4,y:6,to:"townmap",label:"Out to the street"},
+    entry:[4,5] },
+
+  chapel:{ name:"The chapel", w:9, h:9, floor:"stone",
+    plan:["#########",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "#.......#",
+          "####=####"],
+    objects:[
+      {id:"altar", kind:"altar", x:3,y:1,w:3,h:1, label:"The altar", act:"look:Swept, and older than the village. Somebody has left dried lavender on it.", stand:[4,2]},
+      {id:"pewA",  kind:"pew",   x:2,y:4,w:2,h:1, label:"A pew", act:"look:Worn smooth in two places and nowhere else.", stand:[2,5]},
+      {id:"pewB",  kind:"pew",   x:5,y:4,w:2,h:1, label:"A pew", act:"look:Worn smooth in two places and nowhere else.", stand:[5,5]},
+      {id:"candles",kind:"candles",x:7,y:1,w:1,h:1, label:"Candles", act:"look:Half of them lit. Ansel says he never lights them himself.", stand:[7,2]},
+    ],
+    npc:{name:"Ansel Roke", at:[4,3], hue:"#4f6a72",
+      line:"Spirits and prayers are neighbours. I've never seen them quarrel."},
+    exit:{x:4,y:8,to:"townmap",label:"Out into the village"},
+    entry:[4,7] },
+};
+
+/* someone at work out in the country */
+function Worker({w}){
+  const body=(<g>
+    <ellipse cx="0" cy="10" rx="6.5" ry="2" fill="#0d0a14" opacity="0.3"/>
+    <path d="M-7.5,-1 q5,-2 10,0 L4.5,9 q-5,2 -10,0 Z" fill={w.hue}/>
+    <circle cx="0" cy="-7" r="3.2" fill="#f0d8ba"/>
+    <path d="M-3.3,-8 q0.5,-4 3.3,-4 q3,0 3.2,4 q-1.2,-2 -3.3,-2 q-2,0 -3.2,2 Z" fill="#4a3b30"/>
+  </g>);
+  if(w.act==="chop") return (<g>
+    <g transform="translate(9,7)"><rect x="-8" y="-3" width="16" height="6" rx="3" fill="#6b5236"/>
+      <ellipse cx="-8" cy="0" rx="2.4" ry="3" fill="#8a6c46"/></g>
+    {body}
+    <g className="chop" style={{transformOrigin:"2px -2px"}}>
+      <path d="M2,-2 L11,-9" stroke="#6f5237" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M11,-9 l4,-1 l1,4 Z" fill="#9aa4b0"/>
+    </g>
+  </g>);
+  if(w.act==="tend") return (<g>
+    {body}
+    <g className="tend" style={{transformOrigin:"0px 0px"}}>
+      <path d="M3,-1 L10,7" stroke="#6f5237" strokeWidth="1.6" strokeLinecap="round"/>
+      <path d="M10,7 l3,3 l-4,1 Z" fill="#8a8f96"/>
+    </g>
+    <circle cx="-9" cy="9" r="2.4" fill="#63873c"/><circle cx="-13" cy="10" r="2" fill="#547635"/>
+  </g>);
+  if(w.act==="haul") return (<g>
+    {body}
+    <g className="tend" style={{transformOrigin:"0px 0px"}}>
+      <path d="M4,0 q7,2 9,8" stroke="#8aa87e" strokeWidth="1.4" fill="none"/>
+      <path d="M9,8 q5,-1 6,4 q-4,3 -7,0 Z" fill="#7a6448"/>
+    </g>
+  </g>);
+  if(w.act==="crouch") return (<g>
+    <ellipse cx="0" cy="9" rx="6" ry="2" fill="#0d0a14" opacity="0.28"/>
+    <path d="M-6,2 q5,-3 10,0 L4,8 q-5,2 -9,0 Z" fill={w.hue}/>
+    <circle cx="1" cy="-2" r="3" fill="#f0d8ba"/>
+    <path d="M-2.2,-3 q0.5,-3.6 3.2,-3.6 q2.8,0 3,3.6 q-1.2,-1.8 -3.1,-1.8 q-1.9,0 -3.1,1.8 Z" fill="#6a4a2e"/>
+    <path d="M5,3 q5,1 7,4" stroke="#8a7a5a" strokeWidth="1.2" fill="none"/>
+  </g>);
+  return (<g>{body}
+    <g transform="translate(-11,3)">
+      <rect x="-3.5" y="-2" width="7" height="6" fill="#7a5836"/>
+      <path d="M-3.5,-2 q3.5,-3 7,0 Z" fill="#8f6a42"/></g>
+  </g>);
+}
+
+/* furniture, drawn to its footprint */
+function Furniture({o,T}){
+  const W=o.w*T, H=o.h*T, k=o.kind;
+  if(k==="counter") return (<g>
+    <rect x="2" y={H*0.28} width={W-4} height={H*0.62} fill="#7a5c3c"/>
+    <rect x="0" y={H*0.16} width={W} height={H*0.2} rx="3" fill="#95744c"/>
+    <path d={`M8,${H*0.55} L${W-8},${H*0.55}`} stroke="#5f4327" strokeWidth="1.4"/></g>);
+  if(k==="shelf") return (<g>
+    <rect x="1" y="4" width={W-2} height={H-8} fill="#6b5236"/>
+    <rect x="3" y="7" width={W-6} height={4} fill="#8a6c46"/>
+    <rect x="3" y={H*0.5} width={W-6} height={4} fill="#8a6c46"/>
+    <circle cx={W*0.28} cy="5" r="3" fill="#a487cf"/><circle cx={W*0.55} cy="5" r="3" fill="#c07a5a"/>
+    <rect x={W*0.7} y={H*0.28} width="5" height="7" fill="#7ba890"/></g>);
+  if(k==="crate") return (<g>
+    <rect x="5" y={H*0.3} width={W-10} height={H*0.6} fill="#8a6a44"/>
+    <path d={`M5,${H*0.55} L${W-5},${H*0.55}`} stroke="#5f4327" strokeWidth="1.6"/>
+    <path d={`M${W/2},${H*0.3} L${W/2},${H*0.9}`} stroke="#5f4327" strokeWidth="1.2"/></g>);
+  if(k==="bench") return (<g>
+    <rect x="1" y={H*0.3} width={W-2} height={H*0.58} fill="#6f5436"/>
+    <rect x="1" y={H*0.24} width={W-2} height={H*0.14} fill="#8d6c45"/>
+    <circle cx={W*0.2} cy={H*0.2} r="4.5" fill="#9aa4b0"/>
+    <rect x={W*0.42} y={H*0.06} width="7" height="12" rx="2" fill="#7ba890"/>
+    <rect x={W*0.62} y={H*0.1} width="5" height="9" rx="1.5" fill="#c9b06a"/></g>);
+  if(k==="rack") return (<g>
+    <rect x="2" y="6" width={W-4} height="3" fill="#7a5c3c"/>
+    {[0.2,0.45,0.7].map((f,i)=>(<g key={i} transform={`translate(${W*f},9)`}>
+      <path d="M0,0 L0,13" stroke="#6d8a4e" strokeWidth="1.4"/>
+      <ellipse cx="0" cy="15" rx="3.4" ry="5" fill={i%2?"#a487cf":"#9a8aa8"}/></g>))}</g>);
+  if(k==="bed") return (<g>
+    <rect x="3" y="4" width={W-6} height={H-8} rx="3" fill="#6b5236"/>
+    <rect x="5" y={H*0.3} width={W-10} height={H*0.56} rx="3" fill="#c9bfae"/>
+    <rect x="5" y={H*0.3} width={W-10} height={H*0.2} rx="3" fill="#8f7aa8"/>
+    <rect x="7" y="8" width={W*0.4} height={H*0.2} rx="3" fill="#e8e0cc"/></g>);
+  if(k==="stove") return (<g>
+    <rect x="3" y={H*0.24} width={W-6} height={H*0.64} fill="#5a5450"/>
+    <rect x={W*0.2} y={H*0.44} width={W*0.3} height={H*0.3} fill="#2a2420"/>
+    <circle cx={W*0.34} cy={H*0.6} r="4" fill="#d8873a"/>
+    <rect x={W*0.62} y={H*0.16} width="9" height="9" rx="2" fill="#8a8a86"/>
+    <rect x={W*0.72} y="0" width="4" height={H*0.2} fill="#4a4440"/></g>);
+  if(k==="chest") return (<g>
+    <rect x="4" y={H*0.4} width={W-8} height={H*0.45} fill="#7a5836"/>
+    <path d={`M4,${H*0.4} q${(W-8)/2},-${H*0.3} ${W-8},0 Z`} fill="#8f6a42"/>
+    <rect x={W*0.42} y={H*0.44} width="6" height="8" fill="#c9a86a"/></g>);
+  if(k==="window") return (<g>
+    <rect x="4" y={H*0.2} width={W-8} height={H*0.55} fill="#3d6172"/>
+    <rect x="4" y={H*0.2} width={W-8} height={H*0.55} fill="none" stroke="#7a5c3c" strokeWidth="3"/>
+    <path d={`M${W/2},${H*0.2} L${W/2},${H*0.75}`} stroke="#7a5c3c" strokeWidth="2"/></g>);
+  if(k==="stairs") return (<g>
+    {[0,1,2,3].map(i=>(<rect key={i} x={2+i*3} y={H-8-i*7} width={W-4-i*3} height="7" fill={i%2?"#8a6c46":"#7a5c3c"}/>))}</g>);
+  if(k==="door") return (<g>
+    <rect x="4" y="4" width={W-8} height={H-6} rx="2" fill="#5a4430"/>
+    <circle cx={W-11} cy={H*0.55} r="1.6" fill="#c9a86a"/></g>);
+  if(k==="timber") return (<g>
+    {[0,1,2].map(i=>(<rect key={i} x="2" y={6+i*8} width={W-4} height="6" rx="2" fill={i%2?"#8a6c46":"#7a5c3c"}/>))}</g>);
+  if(k==="chair") return (<g>
+    <rect x={W*0.25} y={H*0.4} width={W*0.5} height="5" fill="#8a6c46"/>
+    <rect x={W*0.28} y={H*0.45} width="4" height={H*0.4} fill="#7a5c3c"/>
+    <rect x={W*0.62} y={H*0.45} width="4" height={H*0.4} fill="#7a5c3c"/>
+    <rect x={W*0.28} y={H*0.14} width="4" height={H*0.3} fill="#7a5c3c"/></g>);
+  if(k==="altar") return (<g>
+    <rect x="3" y={H*0.3} width={W-6} height={H*0.6} fill="#a89e8c"/>
+    <rect x="0" y={H*0.2} width={W} height={H*0.16} rx="2" fill="#bdb3a0"/>
+    <ellipse cx={W*0.5} cy={H*0.26} rx="9" ry="3" fill="#a487cf" opacity="0.8"/></g>);
+  if(k==="pew") return (<g>
+    <rect x="2" y={H*0.42} width={W-4} height="6" fill="#7a5c3c"/>
+    <rect x="2" y={H*0.16} width={W-4} height="5" fill="#6b5236"/>
+    <rect x="4" y={H*0.5} width="4" height={H*0.3} fill="#6b5236"/>
+    <rect x={W-8} y={H*0.5} width="4" height={H*0.3} fill="#6b5236"/></g>);
+  if(k==="candles") return (<g>
+    {[0.3,0.5,0.7].map((f,i)=>(<g key={i} transform={`translate(${W*f},${H*0.5})`}>
+      <rect x="-1.6" y="0" width="3.2" height={10-i*2} fill="#e8e0cc"/>
+      <circle cx="0" cy="-2" r="2.2" fill="#f0d890"/>
+      <circle cx="0" cy="-2" r="5" fill="#f0d890" opacity="0.18"/></g>))}</g>);
+  return <rect x="4" y="4" width={W-8} height={H-8} fill="#6b5236"/>;
+}
+
 /* ===== SOUND =====
    All generated live — no audio files. Four seasonal beds built from the same parts. */
 const MUSIC = [
@@ -1340,7 +1650,7 @@ function windowOf(ing,day,h){
   if(w==="night") return h>=DUSK ? `n${day}` : `n${day-1}`;
   return `a${day}`;
 }
-const MAXSTAM=8, SAVE_KEY="witchgame:v9";
+const MAXSTAM=8, SAVE_KEY="witchgame:v11";
 
 export default function WitchGame(){
   const grid=useMemo(buildGrid,[]);
@@ -1378,6 +1688,9 @@ export default function WitchGame(){
   const [wear,setWear]=useState({});
   const [site,setSite]=useState(null);
   const [tw,setTw]=useState(null);      // {pos, fam, walking, note, pending}
+  const [inTown,setInTown]=useState(null);   // which town she's currently standing in
+  const [room,setRoom]=useState(null);       // {key,pos,walking,note,pending}
+  const [ipanel,setIpanel]=useState(null);   // what the room panel is showing
   const [scraps,setScraps]=useState({});      // id -> {sol, knownSlot, attempts:[], solved:bool}
   const [openScrap,setOpenScrap]=useState(null);
   const [foundFirst,setFoundFirst]=useState(false);
@@ -1434,7 +1747,7 @@ export default function WitchGame(){
       return()=>window.removeEventListener("pointerdown",go);
     }
   },[soundOn,season,nightNow,weather]);
-  const clockRuns = appActive && (screen==="site"||screen==="town"||screen==="townmap");
+  const clockRuns = appActive && (screen==="site"||screen==="town"||screen==="townmap"||screen==="room");
   /* one bird crosses now and then, rather than a permanent loop */
   useEffect(()=>{
     if(screen!=="site"||!appActive) return;
@@ -1487,17 +1800,17 @@ export default function WitchGame(){
         setProf(s.prof||"herbalism");setSkills(s.skills||skills);
         setPos(s.pos);setSeen(new Set(s.seen));setDay(s.day);setHour(s.hour??7);setStamina(s.stamina);setCoin(s.coin);setRep(s.rep);
         setBag(s.bag);setGoods(s.goods||{});setHomeTown(s.homeTown);setCustomers(s.customers||[]);setCustDay(s.custDay||0);setServed(s.served||[]);setLog(s.log||[]);
-        setUnsettled(s.unsettled||0);setSiteMem(s.siteMem||{});setWear(s.wear||{});setScraps(s.scraps||{});setBench(s.bench||null);setFoundFirst(!!s.foundFirst);setFront(s.front||null);setSoundOn(!!s.soundOn);setBonds(s.bonds||{});setUsedEnc(s.usedEnc||[]);setLastEncDay(s.lastEncDay??-99);
-        setScreen((s.screen==="site"||s.screen==="encounter"||s.screen==="townmap")?"map":s.screen);}
+        setUnsettled(s.unsettled||0);setSiteMem(s.siteMem||{});setWear(s.wear||{});setScraps(s.scraps||{});setBench(s.bench||null);setFoundFirst(!!s.foundFirst);setInTown(s.inTown||null);setFront(s.front||null);setSoundOn(!!s.soundOn);setBonds(s.bonds||{});setUsedEnc(s.usedEnc||[]);setLastEncDay(s.lastEncDay??-99);
+        setScreen((s.screen==="site"||s.screen==="encounter"||s.screen==="townmap"||s.screen==="room")?"map":s.screen);}
     }catch(e){}
     setLoaded(true);
   })();},[]);
 
   useEffect(()=>{
     if(!loaded||screen==="create")return;
-    const s={prof,skills,pos,seen:[...seen],day,hour,stamina,coin,rep,bag,goods,homeTown,customers,custDay,served,log,unsettled,siteMem,wear,scraps,bench,foundFirst,front,soundOn,bonds,usedEnc,lastEncDay,screen:(screen==="site"||screen==="encounter"||screen==="townmap")?"map":screen};
+    const s={prof,skills,pos,seen:[...seen],day,hour,stamina,coin,rep,bag,goods,homeTown,customers,custDay,served,log,unsettled,siteMem,wear,scraps,bench,foundFirst,front,soundOn,inTown,bonds,usedEnc,lastEncDay,screen:(screen==="site"||screen==="encounter"||screen==="townmap"||screen==="room")?"map":screen};
     window.storage.set(SAVE_KEY,JSON.stringify(s)).catch(()=>{});
-  },[loaded,prof,skills,pos,seen,day,hour,stamina,coin,rep,bag,goods,homeTown,customers,custDay,served,log,unsettled,siteMem,wear,scraps,bench,foundFirst,front,soundOn,bonds,usedEnc,lastEncDay,screen]);
+  },[loaded,prof,skills,pos,seen,day,hour,stamina,coin,rep,bag,goods,homeTown,customers,custDay,served,log,unsettled,siteMem,wear,scraps,bench,foundFirst,front,soundOn,inTown,bonds,usedEnc,lastEncDay,screen]);
 
   const now = day*24 + hour;
   const advance = hrs => {
@@ -1580,7 +1893,9 @@ export default function WitchGame(){
     if(!pool.length)return null;
     return pool[Math.floor(Math.random()*pool.length)];
   }
-  const townDef = homeTown ? TOWNS[homeTown.key] : null;
+  const townDef = inTown ? TOWNS[inTown] : null;
+  const townHereKey = (()=>{ const t=byId[pos];
+    return (t&&(t.place==="town"||t.place==="village")) ? t.place : null; })();
   function townSolid(t,x,y){
     if(x<0||y<0||x>=t.w||y>=t.h) return true;
     const ch=t.ground[y][x];
@@ -1603,10 +1918,97 @@ export default function WitchGame(){
     while(c!==from){ path.unshift(c); c=prev[c]; }
     return path;
   }
-  function enterTown(){
-    if(!homeTown) return;
-    const t=TOWNS[homeTown.key];
+  const roomDef = room ? INTERIORS[room.key] : null;
+  function roomSolid(r,x,y){
+    if(x<0||y<0||x>=r.w||y>=r.h) return true;
+    if(r.plan[y][x]==="#") return true;
+    return r.objects.some(o=>x>=o.x&&x<o.x+o.w&&y>=o.y&&y<o.y+o.h);
+  }
+  function roomPath(r,from,to){
+    const prev={},seen=new Set([from]),q=[from];
+    while(q.length){
+      const cur=q.shift(); if(cur===to) break;
+      const [x,y]=cur.split(",").map(Number);
+      for(const [nx,ny] of [[x+1,y],[x-1,y],[x,y+1],[x,y-1]]){
+        const id=`${nx},${ny}`;
+        if(seen.has(id)||roomSolid(r,nx,ny)) continue;
+        seen.add(id); prev[id]=cur; q.push(id);
+      }
+    }
+    if(!seen.has(to)) return null;
+    const path=[]; let c=to;
+    while(c!==from){ path.unshift(c); c=prev[c]; }
+    return path;
+  }
+  function openRoom(key){
+    const r=INTERIORS[key]; if(!r) return;
+    sfx("page");
+    setRoom({key,pos:`${r.entry[0]},${r.entry[1]}`,walking:null,note:null,pending:null});
+    setIpanel(null);
+    setScreen("room");
+  }
+  function tapRoom(x,y){
+    const r=roomDef; if(!r||!room||room.walking) return;
+    const id=`${x},${y}`;
+    if(r.exit&&x===r.exit.x&&y===r.exit.y){ leaveRoom(); return; }
+    if(id===room.pos) return;
+    let dest=id, act=null;
+    const o=r.objects.find(o=>x>=o.x&&x<o.x+o.w&&y>=o.y&&y<o.y+o.h);
+    if(o){ if(!o.stand) return; dest=`${o.stand[0]},${o.stand[1]}`; act={kind:"obj",id:o.id}; }
+    else if(r.npc&&r.npc.at[0]===x&&r.npc.at[1]===y){
+      const adj=[[x+1,y],[x-1,y],[x,y+1],[x,y-1]].filter(([a,b])=>!roomSolid(r,a,b));
+      if(!adj.length) return;
+      dest=`${adj[0][0]},${adj[0][1]}`; act={kind:"npc"};
+    } else if(roomSolid(r,x,y)) return;
+    const path=roomPath(r,room.pos,dest);
+    if(!path) return;
+    setRoom(w=>({...w,walking:{steps:path,i:0},pending:act,note:null}));
+    setIpanel(null);
+  }
+  function leaveRoom(){
+    const r=roomDef; if(!r) return;
+    if(r.exit.to==="townmap"){ setRoom(null); setIpanel(null); setScreen("townmap"); }
+    else openRoom(r.exit.to);
+  }
+  function resolveRoom(act){
+    const r=roomDef; if(!r) return;
+    if(act.kind==="npc"){
+      sfx("tap");
+      setRoom(w=>w&&({...w,note:`${r.npc.name}\n"${r.npc.line}"`}));
+      return;
+    }
+    const o=r.objects.find(x=>x.id===act.id); if(!o) return;
+    const a=o.act||"";
+    if(a.startsWith("go:")){ openRoom(a.slice(3)); return; }
+    if(a.startsWith("look:")){ setRoom(w=>w&&({...w,note:a.slice(5)})); return; }
+    if(a==="bench"){ sfx("page"); setScreen("workshop"); return; }
+    if(a==="counter"||a==="make"||a==="satchel"||a==="bed"){ setIpanel(a); setRoom(w=>w&&({...w,note:null})); return; }
+    setRoom(w=>w&&({...w,note:o.label}));
+  }
+  useEffect(()=>{
+    if(!room?.walking||!roomDef) return;
+    if(room.walking.i>=room.walking.steps.length){
+      const act=room.pending;
+      setRoom(w=>w&&({...w,walking:null,pending:null}));
+      if(act) resolveRoom(act);
+      return;
+    }
+    const id=setTimeout(()=>{
+      setRoom(w=>{
+        if(!w?.walking) return w;
+        const step=w.walking.steps[w.walking.i];
+        if(w.walking.i%2===0) sfx("step");
+        return {...w,pos:step,walking:{...w.walking,i:w.walking.i+1}};
+      });
+    },140);
+    return()=>clearTimeout(id);
+  },[room,roomDef]);
+
+  function enterTown(key){
+    const k=key||townHereKey; if(!k||!TOWNS[k]) return;
+    const t=TOWNS[k];
     const e=`${t.entry[0]},${t.entry[1]}`;
+    setInTown(k);
     setTw({pos:e,fam:e,walking:null,note:null,pending:null});
     setScreen("townmap");
   }
@@ -1621,7 +2023,7 @@ export default function WitchGame(){
       dest=`${b.door[0]},${b.door[1]}`; action={kind:"building",id:b.id};
       if(townSolid(t,b.door[0],b.door[1])) return;
     } else {
-      const folk=(TOWNSFOLK[homeTown.key]||[]).find(n=>{
+      const folk=(TOWNSFOLK[inTown]||[]).find(n=>{
         const p=npcAt(n,hour); return p&&p[0]===x&&p[1]===y; });
       if(folk) action={kind:"npc",name:folk.name};
     }
@@ -1632,7 +2034,7 @@ export default function WitchGame(){
   function enterSite(){
     const tile=byId[pos],mem=siteMem[siteKey];
 
-    const gen=genSite(pos,day,tile.terrain,tile.place,wearOf(pos));
+    const gen=genSite(pos,day,tile.terrain,tile.place,wearOf(pos),hour);
     const taken=mem?.taken||{},revealed=new Set(mem?.revealed||[]);
     gen.cells.forEach(c=>{
       if(c.node&&taken[c.id]!==undefined){
@@ -1648,7 +2050,7 @@ export default function WitchGame(){
       if((c.curio||c.greed)&&taken[c.id]===0){c.curio=null;c.greed=null;c.blocked=false;}
     });
     if(!mem){setSiteMem(m=>({...m,[siteKey]:{taken:{},revealed:[]}}));}
-    setSite({cells:gen.cells,def:gen.def,art:gen.art,perm:gen.perm,worn:gen.worn,season:gen.season,player:gen.entry,fam:famSpotFor(gen.entry,gen.cells),walking:null,pending:null,note:null,terrain:tile.terrain});
+    setSite({cells:gen.cells,def:gen.def,art:gen.art,perm:gen.perm,worn:gen.worn,season:gen.season,worker:gen.worker,player:gen.entry,fam:famSpotFor(gen.entry,gen.cells),walking:null,pending:null,note:null,terrain:tile.terrain});
     if(!mem){
       const e=rollEncounter(tile.terrain);
       if(e){ setActiveEnc(e); setEncOutcome(null); setUsedEnc(u=>[...u,e.id]); setLastEncDay(day); setScreen("encounter"); return; }
@@ -1686,6 +2088,17 @@ export default function WitchGame(){
     const target=cell.id;
     if(target===site.player)return;
     let dest=target,action=null;
+    if(site.worker&&site.worker.at===target){
+      const [wx,wy]=target.split(",").map(Number);
+      const adj=[[wx+1,wy],[wx-1,wy],[wx,wy+1],[wx,wy-1]]
+        .filter(([a,b])=>a>=0&&b>=0&&a<SW&&b<SH&&!site.cells[b*SW+a].blocked)
+        .map(([a,b])=>`${a},${b}`);
+      let best=null,bl=Infinity;
+      adj.forEach(id=>{const p=sitePath(site.player,id,site.cells);if(p&&p.length<bl){bl=p.length;best=id;}});
+      if(best){ const path=sitePath(site.player,best,site.cells);
+        if(path){ setSite(s2=>({...s2,walking:{steps:path,i:0},pending:"__greet",note:null})); return; } }
+      greet(); return;
+    }
     if(cell.blocked){
       const interactive = isMine(cell.node)||cell.curio||cell.greed||cell.landmark;
       if(!interactive)return;
@@ -1707,7 +2120,7 @@ export default function WitchGame(){
     if(site.walking.i>=site.walking.steps.length){
       const act=site.pending;
       setSite(s=>s&&({...s,walking:null,pending:null}));
-      if(act)doHarvest(act);
+      if(act==="__greet") greet(); else if(act) doHarvest(act);
       return;
     }
     stepTimer.current=setTimeout(()=>{
@@ -1753,19 +2166,29 @@ export default function WitchGame(){
 
   function resolveTown(act){
     if(act.kind==="npc"){
-      const n=(TOWNSFOLK[homeTown.key]||[]).find(x=>x.name===act.name);
+      const n=(TOWNSFOLK[inTown]||[]).find(x=>x.name===act.name);
       if(n){ sfx("tap"); setTw(w=>w&&({...w,note:`${n.name}${n.role?" · "+n.role:""}\n"${n.line}"`})); }
       return;
     }
     const b=townDef.buildings.find(x=>x.id===act.id);
     if(!b) return;
-    if(b.enter==="shop"){ sfx("page"); setScreen("town"); return; }
-    if(b.enter==="store"){ setTw(w=>w&&({...w,note:"Sloe's general store. Maren keeps the counter tidy and the shelves full. Nothing to buy yet — the trading comes later."})); return; }
-    if(b.enter==="furniture"){ setTw(w=>w&&({...w,note:"Stoke's carpentry. Sawdust, half-built shelves, and Deri arguing with a chair. Nothing to buy yet."})); return; }
-    if(b.enter==="chapel"){ setTw(w=>w&&({...w,note:"The chapel. Cold stone, swept clean, and no one much in it. Ansel keeps it anyway."})); return; }
+    if(b.enter==="shop"){
+      if(homeTown&&inTown===homeTown.key){ openRoom("shop"); return; }
+      setTw(w=>w&&({...w,note:"An empty shopfront, shutters closed. A card in the window gives a name — Ivo Marchant — and says enquiries welcome."}));
+      return;
+    }
+    if(b.enter==="store"){ openRoom("store"); return; }
+    if(b.enter==="furniture"){ openRoom("furniture"); return; }
+    if(b.enter==="chapel"){ openRoom("chapel"); return; }
     setTw(w=>w&&({...w,note:`${b.name}. The door is shut.`}));
   }
 
+  function greet(){
+    const w=site&&site.worker; if(!w) return;
+    sfx("tap");
+    const line=w.lines[Math.floor(Math.random()*w.lines.length)];
+    setSite(s2=>s2&&({...s2,note:`${w.name}${w.role?" · "+w.role:""}\n"${line}"`}));
+  }
   function doHarvest(id){
     if(!site)return;
     const cells=site.cells.map(c=>({...c,node:c.node?{...c.node}:null}));
@@ -1853,6 +2276,7 @@ export default function WitchGame(){
   function settle(placeKey){
     setHomeTown({key:placeKey,tile:pos});setSettlePrompt(null);
     const t=TOWNS[placeKey];const e=`${t.entry[0]},${t.entry[1]}`;
+    setInTown(placeKey);
     setTw({pos:e,fam:e,walking:null,note:null,pending:null});setScreen("townmap");
     say(`You take the empty shopfront at ${PLACES[placeKey].label}. It smells of dust and old rope.`);
   }
@@ -2100,6 +2524,146 @@ export default function WitchGame(){
     </div>);
   }
 
+  /* ---- A ROOM ---- */
+  if(screen==="room"&&room&&roomDef){
+    const r=roomDef;
+    const RW=r.w*T, RH=r.h*T;
+    const [px,py]=room.pos.split(",").map(Number);
+    const vw=viewSize.w, vh=Math.min(RH+2, viewSize.h);
+    const camX=Math.min(Math.max(0,RW-vw),Math.max(0,px*T+T/2-vw/2));
+    const camY=Math.min(Math.max(0,RH-vh),Math.max(0,py*T+T/2-vh/2));
+    const boards=r.floor==="stone";
+    const lamp=isNight(hour)?0.34:0.10;
+    const mine=homeTown&&inTown===homeTown.key;
+    const here=customers.filter(c=>now>=c.from&&now<c.to&&!served.includes(c.person.name));
+    const bagList=Object.entries(bag).filter(([k,n])=>n>0&&ING[k]);
+    const goodsList=Object.entries(goods).filter(([,n])=>n>0);
+    const knownRecipes2=Object.values(scraps).filter(x=>x.solved);
+    return(<div style={wrap}>
+      <StatusBar/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8,padding:"0 2px"}}>
+        <div style={{fontSize:16,color:C.text}}>{r.name}</div>
+        {r.npc&&<div style={{fontSize:11.5,color:C.faint,fontStyle:"italic"}}>{r.npc.name} is in</div>}
+        {!r.npc&&here.length>0&&room.key==="shop"&&<div style={{fontSize:11.5,color:C.gold,fontStyle:"italic"}}>someone at the counter</div>}
+      </div>
+      <div style={{border:`1px solid ${C.line}`,borderRadius:10,overflow:"hidden",marginBottom:10}}>
+        <div ref={siteBox} style={{position:"relative",width:"100%",height:vh,overflow:"hidden",background:"#2a2130"}}>
+          <div style={{position:"absolute",width:RW,height:RH,
+            transform:`translate(${-camX}px, ${-camY}px)`,transition:"transform 0.16s linear"}}>
+            <svg width={RW} height={RH} viewBox={`0 0 ${RW} ${RH}`} style={{display:"block"}}>
+              {r.plan.map((row,y)=>row.split("").map((ch,x)=>{
+                const alt=((x*7)^(y*13))%2===0;
+                const wall=ch==="#";
+                return <rect key={`f${x},${y}`} x={x*T} y={y*T} width={T} height={T}
+                  fill={wall?"#3b3040":boards?(alt?"#8e8578":"#948b7e"):(alt?"#7a5f42":"#82663f")}/>;
+              }))}
+              {!boards&&r.plan.map((row,y)=>row.split("").map((ch,x)=>ch==="#"?null:(
+                <path key={`p${x},${y}`} d={`M${x*T},${y*T+T} L${x*T+T},${y*T+T}`} stroke="#6b5236" strokeWidth="1" opacity="0.5"/>)))}
+              {r.exit&&(<g transform={`translate(${r.exit.x*T},${r.exit.y*T})`} onClick={leaveRoom} style={{cursor:"pointer"}}>
+                <rect x="0" y="0" width={T} height={T} fill="#3b3040"/>
+                <rect x="7" y="6" width={T-14} height={T-6} rx="3" fill="#5a4430"/>
+                <circle cx={T-16} cy={T*0.6} r="2" fill="#c9a86a"/>
+                <text x={T/2} y={T-4} textAnchor="middle" fontSize="8" fill="#c9bcda" fontFamily="Georgia,serif">out</text>
+              </g>)}
+              {r.objects.map(o=>(
+                <g key={o.id} transform={`translate(${o.x*T},${o.y*T})`}
+                   onClick={()=>tapRoom(o.x,o.y)} style={{cursor:"pointer"}}>
+                  <Furniture o={o} T={T}/>
+                </g>))}
+              {r.npc&&(
+                <g transform={`translate(${r.npc.at[0]*T+T/2},${r.npc.at[1]*T+T/2})`}
+                   onClick={()=>tapRoom(r.npc.at[0],r.npc.at[1])} style={{cursor:"pointer"}}>
+                  {NPC_SPRITE(r.npc.hue)}
+                </g>)}
+              {r.plan.map((row,y)=>row.split("").map((ch,x)=>(
+                <rect key={`t${x},${y}`} x={x*T} y={y*T} width={T} height={T} fill="transparent"
+                  onClick={()=>tapRoom(x,y)} style={{cursor:"pointer"}}/>)))}
+              <rect x="0" y="0" width={RW} height={RH} fill="#1a1428" opacity={lamp} style={{pointerEvents:"none"}}/>
+              <g transform={`translate(${px*T+T/2},${py*T+T/2+2}) scale(0.86)`}>{WITCH}</g>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* what she's standing at */}
+      {ipanel==="counter"&&(
+        <Panel style={{marginBottom:10}}>
+          <Label>At the counter</Label>
+          {here.length===0
+            ? <div style={{fontSize:13,color:C.faint,fontStyle:"italic",lineHeight:1.6}}>
+                {isNight(hour)?"Nobody at this hour.":"Nobody just now."}
+              </div>
+            : here.map(c=>{
+                const can=c.kind==="good"?(goods[c.id]||0)>0:(bag[c.id]||0)>0;
+                return(<div key={c.person.name} style={{marginBottom:10}}>
+                  <div style={{fontSize:16,color:C.gold}}>{c.person.name}</div>
+                  <div style={{fontSize:13,color:C.dim,fontStyle:"italic",margin:"4px 0 8px",lineHeight:1.6}}>"{c.person.line}"</div>
+                  <div style={{fontSize:13.5,color:C.text,marginBottom:10}}>Wants: <span style={{color:C.gold}}>{c.name}</span> · pays {c.pay} coin</div>
+                  <Btn disabled={!can} onClick={()=>serve(c)}>{can?"Hand it over":"You don't have one"}</Btn>
+                </div>);})}
+        </Panel>)}
+
+      {ipanel==="make"&&(
+        <Panel style={{marginBottom:10}}>
+          <Label>Make</Label>
+          {knownRecipes2.length===0&&<div style={{fontSize:13,color:C.faint,fontStyle:"italic"}}>You don't know any recipes yet.</div>}
+          {knownRecipes2.map(x=>{const d=SCRAPS[x.id];
+            const need={};x.sol.forEach(i=>need[i]=(need[i]||0)+1);
+            const can=Object.entries(need).every(([k,n])=>(bag[k]||0)>=n);
+            return(<div key={x.id} onClick={()=>craftKnown(x)} style={{display:"flex",justifyContent:"space-between",
+              alignItems:"center",gap:10,padding:"10px 12px",marginBottom:7,borderRadius:7,
+              background:can?"#2a2140":"#1b1626",border:`1px solid ${can?"#4d3f6b":"#282236"}`,cursor:"pointer",opacity:can?1:0.6}}>
+              <div><div style={{fontSize:14,color:can?C.text:C.faint}}>{d.name}</div>
+                <div style={{fontSize:11.5,color:C.faint,marginTop:2}}>
+                  {Object.entries(need).map(([k,n],ix)=>(<span key={k} style={{color:(bag[k]||0)>=n?C.faint:"#d8a0a8"}}>
+                    {ix?" + ":""}{ING[k]?ING[k].name:k}{n>1?` ×${n}`:""} ({bag[k]||0})</span>))}
+                </div></div>
+              <div style={{fontSize:12,color:C.gold}}>{goods[d.id]?`×${goods[d.id]}`:""} ▸</div>
+            </div>);})}
+        </Panel>)}
+
+      {ipanel==="satchel"&&(
+        <Panel style={{marginBottom:10}}>
+          <Label>Satchel</Label>
+          {bagList.length===0&&goodsList.length===0&&<div style={{fontSize:13,color:C.faint,fontStyle:"italic"}}>Empty.</div>}
+          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+            {bagList.map(([k,n])=>(<div key={k} style={{background:"#1b1626",border:"1px solid #2e2740",borderRadius:6,padding:"6px 10px",fontSize:12.5}}>
+              <span style={{color:ING[k].color,marginRight:5}}>{ING[k].icon}</span><span style={{color:C.dim}}>{ING[k].name}</span><span style={{color:C.faint}}> ×{n}</span></div>))}
+            {goodsList.map(([k,n])=>{const d=SCRAPS[k];if(!d)return null;
+              return(<div key={k} style={{background:"#2a2140",border:"1px solid #4d3f6b",borderRadius:6,padding:"6px 10px",fontSize:12.5,color:C.gold}}>{d.name} ×{n}</div>);})}
+          </div>
+        </Panel>)}
+
+      {ipanel==="bed"&&(
+        <Panel style={{marginBottom:10}}>
+          <Label>Your own bed</Label>
+          <div style={{fontSize:12.5,color:C.faint,lineHeight:1.55,marginBottom:10}}>
+            {unsettled>0?"You'll not sleep well tonight.":"A proper night restores you fully."}
+          </div>
+          <div style={{display:"flex",gap:7}}>
+            {[8,6,4].map(h=>(
+              <button key={h} onClick={()=>{sleep(h);setIpanel(null);}} style={{flex:1,padding:"10px 4px",borderRadius:8,
+                fontFamily:"inherit",fontSize:13,cursor:"pointer",background:"#4a3a6b",color:"#f0e6ff",border:"1px solid #6b559b"}}>
+                {h}h<div style={{fontSize:10.5,color:"#c9bcda",marginTop:2}}>+{sleepGain(h)} ◆</div>
+              </button>))}
+          </div>
+        </Panel>)}
+
+      {!ipanel&&(
+        <Panel style={{marginBottom:10,minHeight:70}}>
+          <div style={{fontSize:13.5,color:room.note?C.text:C.faint,lineHeight:1.65,
+            fontStyle:room.note?"normal":"italic",whiteSpace:"pre-line"}}>
+            {room.note||"Tap to walk. Tap the furniture to use it, or the door to go out."}
+          </div>
+        </Panel>)}
+
+      {ipanel&&<Btn onClick={()=>setIpanel(null)}>Step back</Btn>}
+      {!ipanel&&bench&&room.key==="workshop"&&<Btn tone="gold" onClick={()=>setScreen("workshop")}>
+        {now>=bench.readyAt?"Something's ready on the bench":"The bench is working"}</Btn>}
+      <Journal/>
+    </div>);
+  }
+
   /* ---- TOWN MAP ---- */
   if(screen==="townmap"&&tw&&townDef){
     const t=townDef;
@@ -2109,7 +2673,7 @@ export default function WitchGame(){
     const vw=viewSize.w, vh=viewSize.h;
     const camX=Math.min(Math.max(0,TW-vw),Math.max(0,px*T+T/2-vw/2));
     const camY=Math.min(Math.max(0,TH-vh),Math.max(0,py*T+T/2-vh/2));
-    const folk=(TOWNSFOLK[homeTown.key]||[])
+    const folk=(TOWNSFOLK[inTown]||[])
       .map((n,i)=>({...n,hue:NPC_HUES[i%NPC_HUES.length],at:npcAt(n,hour)}))
       .filter(n=>n.at);
     const g1=season===3?"#8e9aa0":season===2?"#8a8a46":"#7d9454";
@@ -2179,7 +2743,7 @@ export default function WitchGame(){
           {tw.note||"Tap to walk. Tap a door to go in, or a neighbour to say something."}
         </div>
       </Panel>
-      <Btn tone="gold" onClick={()=>{setTw(null);setScreen("map");}}>Out to the map</Btn>
+      <Btn tone="gold" onClick={()=>{setTw(null);setInTown(null);setScreen("map");}}>Out to the map</Btn>
       <Journal/>
     </div>);
   }
@@ -2199,6 +2763,7 @@ export default function WitchGame(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8,padding:"0 2px"}}>
         <div style={{fontSize:16,color:C.text}}>{terr.name}</div>
         <div style={{fontSize:11.5,color:site.worn>=6?"#d8a0a8":site.worn>=3?"#c9b06a":C.faint,fontStyle:"italic",textAlign:"right"}}>
+          {site.worker&&<div style={{color:C.gold}}>{site.worker.name} is out here</div>}
           {site.perm?site.perm.name:""}
           {site.worn>=3&&<div>{site.worn>=6?"Picked over":"Well worked"}</div>}
         </div>
@@ -2229,6 +2794,10 @@ export default function WitchGame(){
                      animation: wingR 0.52s ease-in-out infinite; }
             @keyframes wingL { 0%,100%{transform:rotate(-26deg)} 50%{transform:rotate(24deg)} }
             @keyframes wingR { 0%,100%{transform:rotate(26deg)} 50%{transform:rotate(-24deg)} }
+            .chop { transform-box: fill-box; animation: chopk 1.7s ease-in-out infinite; }
+            @keyframes chopk { 0%,55%,100%{transform:rotate(0deg)} 25%{transform:rotate(-52deg)} 40%{transform:rotate(14deg)} }
+            .tend { transform-box: fill-box; animation: tendk 2.6s ease-in-out infinite; }
+            @keyframes tendk { 0%,100%{transform:rotate(0deg)} 50%{transform:rotate(-16deg)} }
             .rainA { animation: rainfall 0.6s linear infinite; }
             .rainB { animation: rainfall 0.95s linear infinite; }
             @keyframes rainfall { from{background-position:0 0} to{background-position:-34px 132px} }
@@ -2240,7 +2809,7 @@ export default function WitchGame(){
             @keyframes fogdrift { 0%{transform:translateX(-6%)} 100%{transform:translateX(6%)} }
             @keyframes fogdrift2 { 0%{transform:translateX(5%)} 100%{transform:translateX(-5%)} }
             @media (prefers-reduced-motion: reduce) {
-              .sway,.sway2,.shimmer,.drift,.bob,.wingL,.wingR,.rainA,.rainB,.snowA,.snowB,.fogA,.fogB { animation: none; }
+              .sway,.sway2,.shimmer,.drift,.bob,.wingL,.wingR,.rainA,.rainB,.snowA,.snowB,.fogA,.fogB,.chop,.tend { animation: none; }
             }
           `}</style>
           {site.cells.map(c=>(<rect key={`g${c.id}`} x={c.x*T} y={c.y*T} width={T} height={T}
@@ -2298,6 +2867,11 @@ export default function WitchGame(){
                 </g>
               </g>
             </g>)}
+          {site.worker&&(()=>{const [wx,wy]=site.worker.at.split(",").map(Number);
+            return (<g transform={`translate(${wx*T+T/2},${wy*T+T/2})`}
+              onClick={()=>tapSiteTile(site.cells[wy*SW+wx])} style={{cursor:"pointer"}}>
+              <Worker w={site.worker}/>
+            </g>);})()}
           <rect x="0" y="0" width={SITEW} height={SITEH} fill={L.rgb} opacity={L.alpha}
             style={{pointerEvents:"none"}}/>
           {isNight(hour)&&site.cells.filter(c=>c.node&&(c.node.ing==="ghostcap"||c.node.ing==="lanternmoss")&&!c.hidden).map(c=>{
@@ -2316,7 +2890,7 @@ export default function WitchGame(){
       </div>
       <Panel style={{marginBottom:10,minHeight:70}}>
         <div style={{fontSize:13.5,color:site.note?C.text:C.faint,lineHeight:1.65,fontStyle:site.note?"normal":"italic"}}>
-          {site.note||`Tap to walk. A red ! means you can't work it yet; a sun or moon means it's the wrong hour. Lazlo wanders toward whatever he thinks you've missed.`}
+          {site.note||(site.worker?`Tap to walk. ${site.worker.name} is working over there — you could say something.`:`Tap to walk. A red ! means you can't work it yet; a sun or moon means it's the wrong hour. Lazlo wanders toward whatever he thinks you've missed.`)}
         </div>
       </Panel>
       <Btn tone="gold" onClick={leaveSite}>Back to the map</Btn>
@@ -2378,9 +2952,10 @@ export default function WitchGame(){
             {hereTile.terrain==="water"
               ? <div style={{fontSize:12.5,color:"#8fb4cf",fontStyle:"italic",lineHeight:1.6,marginBottom:4}}>You're over open water. Pick a shore to make for.</div>
               : <Btn onClick={enterSite}>Set down and look around</Btn>}
-            {homeTown&&(<><div style={{height:8}}/>
-              <Btn tone="gold" disabled={pos!==homeTown.tile} onClick={enterTown}>
-                {pos===homeTown.tile?`Enter ${PLACES[homeTown.key].label}`:"Fly home to enter town"}</Btn></>)}
+            {townHereKey&&(<><div style={{height:8}}/>
+              <Btn tone="gold" onClick={()=>enterTown(townHereKey)}>
+                Enter {PLACES[townHereKey].label}{homeTown&&homeTown.key===townHereKey?"":" (visiting)"}
+              </Btn></>)}
           </>)}
           {!busy&&sel&&(<>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
@@ -2393,8 +2968,10 @@ export default function WitchGame(){
                 ? <div style={{fontSize:12.5,color:"#8fb4cf",fontStyle:"italic"}}>Open water — nowhere to set down.</div>
                 : <>
                     <Btn onClick={enterSite}>Set down and look around</Btn>
-                    {homeTown&&pos===homeTown.tile&&(<><div style={{height:8}}/>
-                      <Btn tone="gold" onClick={enterTown}>Enter {PLACES[homeTown.key].label}</Btn></>)}
+                    {townHereKey&&(<><div style={{height:8}}/>
+                      <Btn tone="gold" onClick={()=>enterTown(townHereKey)}>
+                        Enter {PLACES[townHereKey].label}{homeTown&&homeTown.key===townHereKey?"":" (visiting)"}
+                      </Btn></>)}
                   </>)
               :!route?<div style={{fontSize:12,color:"#6b5d80",fontStyle:"italic"}}>No known route — explore closer first.</div>
               :sel.terrain==="water"?<div style={{fontSize:12.5,color:"#8fb4cf",fontStyle:"italic",lineHeight:1.6}}>Open water — nowhere to set down. You can cross it, but not stop on it.</div>
@@ -2489,7 +3066,7 @@ export default function WitchGame(){
               <div style={{fontSize:11.5,color:C.faint,marginTop:2}}>{s.sol.map(i=>ING[i].name).join(" → ")}</div>
             </div>);})}
         </Panel>)}
-        <Btn onClick={()=>setScreen("town")}>Back to the shop</Btn>
+        <Btn onClick={()=>{ if(room&&room.key==="workshop") setScreen("room"); else openRoom("workshop"); }}>Back to the bench room</Btn>
       </>)}
       {st&&(<>
         <Panel style={{marginBottom:12}}>
@@ -2671,11 +3248,12 @@ export default function WitchGame(){
       {bench?(now>=bench.readyAt?`The ${SCRAPS[bench.scrapId]?.name||"work"} is ready · look`:"Into the back room · still working"):"Into the back room"}
     </Btn>
     <div style={{height:8}}/>
-    <Btn onClick={()=>{ if(!tw){const t=TOWNS[homeTown.key];const e=`${t.entry[0]},${t.entry[1]}`;
+    <Btn onClick={()=>{ if(!tw||inTown!==homeTown.key){const t=TOWNS[homeTown.key];const e=`${t.entry[0]},${t.entry[1]}`;
+        setInTown(homeTown.key);
         setTw({pos:e,fam:e,walking:null,note:null,pending:null});}
       setScreen("townmap"); }}>Out to the street</Btn>
     <div style={{height:8}}/>
-    <Btn onClick={()=>{setSelected(null);setTw(null);setScreen("map");}}>Fly out to gather</Btn>
+    <Btn onClick={()=>{setSelected(null);setTw(null);setInTown(null);setScreen("map");}}>Fly out to gather</Btn>
     <div style={{height:8}}/>
     <Btn tone="gold" onClick={()=>sleep(8)}>Close up · end day</Btn>
     <Journal/>
